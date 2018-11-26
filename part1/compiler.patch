@@ -410,12 +410,12 @@ index 0955b39..72d6681 100644
    
  end;; (* struct Reader *)
 diff --git a/readme.txt b/readme.txt
-index e69de29..5de5000 100644
+index e69de29..e6aa204 100644
 --- a/readme.txt
 +++ b/readme.txt
 @@ -0,0 +1,12 @@
-+Ron Elklai 308197235
-+Raz Lapid 301726816
++Ron Elklai - 308197235
++Raz Lapid - 301726816
 +
 +I (We) assert that the work we submitted is 100% our own. We have not received any
 +part from any other student in the class, nor have we give parts of it for use to others.
@@ -426,3 +426,260 @@ index e69de29..5de5000 100644
 +va’adat mishma’at
 +, in pursuit of disciplinary
 +action.
+diff --git a/tag-parser.ml b/tag-parser.ml
+index 619497a..89746d9 100644
+--- a/tag-parser.ml
++++ b/tag-parser.ml
+@@ -6,6 +6,8 @@
+ 
+ #use "reader.ml";;
+ 
++open Reader;;
++
+ type constant =
+   | Sexpr of sexpr
+   | Void
+@@ -65,9 +67,240 @@ let reserved_word_list =
+ 
+ (* work on the tag parser starts here *)
+ 
+-let tag_parse_expression sexpr = raise X_not_yet_implemented;;
++(*let rec tag_conditionals sexpr = *)
++                            
++
++
++let rec tag_parse sexpr =
++	match sexpr with 
++	| Bool (x) -> Const (Sexpr (Bool (x)))
++	| Char (x) -> Const (Sexpr (Char (x)))
++	| Number (x) -> Const (Sexpr (Number (x)))
++	| String (x) -> Const (Sexpr (String (x)))
++	| Symbol (x)-> if(not(List.mem x reserved_word_list )) then Var (x) else raise X_syntax_error
++	| Pair (Symbol ("quote"), Pair (x, Nil)) -> Const (Sexpr (x))
++	| Pair (Symbol ("if"), Pair (test, Pair (dit, Pair (dif, Nil)))) -> If (tag_parse test, tag_parse dit, tag_parse dif)
++	| Pair (Symbol ("if"), Pair (test, Pair (dit, Nil))) -> If (tag_parse test, tag_parse dit, Const(Void))
++	| Pair (Symbol ("lambda"), Pair (argList,body)) -> simple_or_opt argList body 
++	| Pair (Symbol ("or"), x) -> fix_or x
++	| Pair (Symbol ("and"), x) -> tag_parse (and_macro_expansion x)
++	| Pair (Symbol ("let"), x) -> tag_parse (let_macro_expansion x)
++	| Pair (Symbol ("let*"), x) -> tag_parse (let_star_macro_expansion x)
++    | Pair (Symbol ("letrec"), x) -> tag_parse (letrec_macro_expansion x)
++	| Pair (Symbol ("define"), Pair(name,value)) -> fix_def name value
++	| Pair (Symbol ("set!"), Pair(name, Pair(value, Nil))) -> fix_set name value
++	| Pair (Symbol ("begin"), x) -> fix_exp_sequence x
++	| Pair (Symbol ("quasiquote"),Pair(x,Nil)) -> tag_parse (qq_macro_expansion x)
++	| Pair (Symbol ("cond"),ribs)-> tag_parse (cond_macro_expansion ribs)
++	| Pair (rator,rands) -> fix_app rator rands
++	| Nil -> Const ((*Sexpr (Nil)*)Void)
++	| _ -> raise X_syntax_error 
+ 
+-let tag_parse_expressions sexpr = raise X_not_yet_implemented;;
++and fix_app rator rands =
++                        let last_rand = last_of_pairs rands in 
++                        match last_rand with 
++                        |Nil->Applic(tag_parse rator , List.map tag_parse (pair_to_list rands))
++                        |_->raise X_syntax_error
+ 
++and cond_macro_expansion x =
++    match x with
++    |Nil->Nil
++    |Pair(Pair(test,Pair(Symbol "=>",dit)),ribs)->
++    (match ribs with
++        |Nil->
++            Pair(Symbol "let",Pair(Pair(Pair(Symbol "value",Pair(test,Nil)),Pair(Pair(Symbol "f",Pair(Pair(Symbol "lambda",Pair(Nil,dit)),Nil)),Nil)),Pair(Pair(Symbol "if",Pair(Symbol "value",Pair(Pair(Pair(Symbol "f",Nil),Pair(Symbol "value",Nil)),Pair(Nil,Nil)))),Nil)))
++
++        |_->
++            Pair(Symbol "let",Pair(Pair(Pair(Symbol "value",Pair(test,Nil)),Pair(Pair(Symbol "f",Pair(Pair(Symbol "lambda",Pair(Nil,dit)),Nil)),Pair(Pair(Symbol "rest",Pair(Pair(Symbol "lambda",Pair(Nil,Pair(cond_macro_expansion ribs,Nil))),Nil)),Nil))),Pair(Pair(Symbol "if",Pair(Symbol "value",Pair(Pair(Pair(Symbol "f",Nil),Pair(Symbol "value",Nil)),Pair(Pair(Symbol "rest",Nil),Nil)))),Nil)))
++    )
++    
++    |Pair(Pair(Symbol "else",dit),ribs)->
++    (match ribs with 
++    |Nil->Pair(Symbol "begin",dit)
++    |_->raise X_syntax_error)
++    
++    |Pair(Pair(test,dit),ribs)->Pair(Symbol "if",Pair(test,Pair(Pair(Symbol "begin", dit),Pair(cond_macro_expansion ribs,Nil))))
++    | _ -> raise X_syntax_error
++  
++ and qq_macro_expansion x =
++    match x with
++        |Pair(Symbol "unquote",Pair(y, Nil))->y
++        |Pair(Symbol "unquote-splicing",Pair(y, Nil))->raise X_syntax_error
++        |Nil-> Pair(Symbol "quote",Pair(Nil,Nil))
++        |Symbol (y)-> Pair(Symbol "quote",Pair(Symbol (y),Nil))
++        |Vector (y) -> Pair(Symbol "vector",list_to_pair(List.map (qq_macro_expansion) y))
++        |Pair(a,b)->(match a with 
++                    |Pair(Symbol "unquote-splicing",Pair(y, Nil))->Pair(Symbol "append",Pair (y,Pair(qq_macro_expansion b,Nil)))
++                    |_->(match b with
++                        |Pair(Symbol "unquote-splicing",Pair(y, Nil))->Pair(Symbol "cons",Pair (qq_macro_expansion a,Pair(y,Nil)))
++                        |_->Pair(Symbol "cons",Pair(qq_macro_expansion a,Pair(qq_macro_expansion b,Nil)))))
++        |c->Pair(Symbol "quote",Pair(c,Nil))
++    
++        
++and list_to_pair lis =
++        match lis with 
++        |[]->Nil
++        |a :: b -> Pair( a , list_to_pair b)
++        
++and letrec_macro_expansion x = 
++        match x with 
++        |Pair(args,body)-> (let delayed_args= list_to_pair(List.map
++                                            (fun x-> match x with 
++                                            |Pair(var,value)-> Pair(var,Pair(Pair(Symbol "quote",Pair(Symbol "whatever",Nil)),Nil))
++                                            | _ -> raise X_syntax_error)
++                                            (pair_to_list(args)))
++                                            in
++                            let set_bangs = List.map
++                                        (fun x ->match x with 
++                                        |Pair(var,value)->Pair(Symbol "set!",Pair(var,value))
++                                        | _ -> raise X_syntax_error)
++                                        (pair_to_list (args))
++                                        in
++                            let fixed_body =list_to_pair( List.append set_bangs (pair_to_list(body))) in
++                            
++                            Pair(Symbol "let",Pair(delayed_args,fixed_body)))
++        | _ -> raise X_syntax_error
++        
++and let_macro_expansion x = 
++        match x with 
++        |Pair(Nil,body) -> Pair(Pair(Symbol "lambda",Pair(Nil,body)),Nil)
++        |Pair(args,body)-> (let args_list = List.map 
++                                            (fun x-> match x with 
++                                            |Pair(var,value)->var
++                                            | _ -> raise X_syntax_error)
++                                            
++                                            (pair_to_list(args))
++                                            in
++                            let value_list = List.map 
++                                            (fun x ->match x with 
++                                            |Pair(var,Pair(value,Nil))->value
++                                            | _ -> raise X_syntax_error)
++                                            
++                                            (pair_to_list(args))
++                                            in
++                            
++                            Pair(Pair(Symbol "lambda",Pair(list_to_pair args_list,body)),list_to_pair(value_list)))
++        | _ -> raise X_syntax_error
++         
++and let_star_macro_expansion x =
++        match x with
++        |Pair(Nil,body) -> Pair(Symbol "let",Pair(Nil,body))
++        |Pair(Pair(Pair(var,Pair(value,Nil)),Nil),body)->Pair(Symbol "let",Pair(Pair(Pair(var,Pair(value,Nil)),Nil),body))
++        |Pair(Pair(Pair(var,Pair(value,Nil)),rest),body)->Pair(Symbol "let",Pair(Pair(Pair(var,Pair(value,Nil)),Nil),Pair(Pair(Symbol "let*",Pair(rest,body)),Nil)))
++        | _ -> raise X_syntax_error
++        
++and and_macro_expansion x =
++	match x with 
++	| Nil -> Bool (true)
++	| Pair(x, Nil)-> x
++	| Pair(x, y) -> Pair (Symbol("if"), Pair (x, Pair (Pair (Symbol ("and"), y), Pair(Bool(false), Nil))))
++  | _ -> raise X_syntax_error
++
++and fix_set name value = 
++	let parsed_name = tag_parse name in
++		match parsed_name with
++		| Var (x) -> Set (parsed_name, tag_parse value)
++		| _ -> raise X_syntax_error 
++
++and fix_def name values =
++    match values with 
++    |Pair(value,rest)-> 
++                (match name with
++		| Symbol (x) -> Def (tag_parse name, tag_parse value)
++		|Pair(func_name,args)-> (match func_name with 
++                                        |Symbol (x)-> tag_parse (Pair(Symbol "define", Pair( func_name , Pair(Pair(Symbol "lambda" , Pair (args,Pair(value,rest))),Nil))))
++                                        |_->raise X_syntax_error)
++		|_->raise X_syntax_error)
++    |_->raise X_syntax_error
++
++and fix_or pair = 
++        let last = last_of_pairs pair in 
++        match last with
++        |Nil->
++            (match pair with 
++            | Nil -> Const (Sexpr (Bool (false)))
++            | Pair(x, Nil)-> tag_parse x
++            | _ -> Or(List.map tag_parse (pair_to_list pair)))
++        |_-> raise X_syntax_error
++        
++and fix_exp_sequence x =
++    match x with 
++    | Nil -> Const(Void)
++    | _->fix_imp_sequence(x)
++
++and fix_imp_sequence x =
++                    let check=last_of_pairs(x) in 
++                    match check with 
++                    |Nil->
++                            (match x with 
++                            | Pair(a,Nil)-> tag_parse a
++                            |_-> Seq(List.map tag_parse (pair_to_list x)))
++                    |_-> raise X_syntax_error
++
++and simple_or_opt argList body =
++
++        let last_body= last_of_pairs(body) in
++        match last_body with
++        |Nil->
++	(match body with 
++	| Pair(a, b) ->(
++		let check_if_dup = check_dup (pair_to_list argList) in
++			match check_if_dup with 
++			| true -> raise X_syntax_error
++			| false ->
++				    let check = (last_of_pairs argList) in
++				            match check with 
++					        |Nil-> LambdaSimple (pair_to_string_list argList, fix_imp_sequence(body))
++				            |Symbol(last)-> LambdaOpt (pair_to_string_list(cut_last_element( argList)), last,fix_imp_sequence(body))
++                  | _ -> raise X_syntax_error)
++	| _ -> raise X_syntax_error)
++|_-> raise X_syntax_error
++
++and check_dup list = match list with
++    [] -> false
++    | (Symbol (h)::t) ->
++       let x = (List.filter 
++                    (fun (x) -> match x with
++                    |Symbol (y)-> y= h
++                    |_->raise X_syntax_error)
++                    t) in
++                    
++         if (x == []) then
++            check_dup t
++         else
++       true
++    |_->raise X_syntax_error
++    
++and cut_last_element pair = 
++	match pair with
++	|Pair(x,Nil)->Nil
++	| Pair (x, y) -> Pair(x, (cut_last_element y))
++	| x -> Nil
++
++and pair_to_string_list pair = 
++	match pair with 
++	| Pair(Symbol (x), y) -> x :: pair_to_string_list y
++	| Symbol (x) -> [x]
++	| Nil -> []
++  | _ -> raise X_syntax_error
++
++and last_of_pairs pair = 
++	match pair with
++	| Pair (x,y) -> last_of_pairs y
++	| x -> x
++
++
++and pair_to_list pair=
++        match pair with 
++	| Pair(x,y) -> x :: pair_to_list y
++	| Nil -> []
++	|x->[x];;
++
++        
++let tag_parse_expression sexpr = tag_parse sexpr;;
++
++let tag_parse_expressions sexpr = List.map tag_parse_expression sexpr;;
+   
+ end;; (* struct Tag_Parser *)
++
++open Tag_Parser;;
+\ No newline at end of file
